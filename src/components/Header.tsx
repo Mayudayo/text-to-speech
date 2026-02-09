@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import type { TextBlock } from '../types.ts';
-import { pcmToMp3, sanitizeFilename } from '../utils/audioUtils.ts';
+import { pcmToMp3Async, sanitizeFilename } from '../utils/audioUtils.ts';
 import VoiceSelector from './VoiceSelector.tsx';
 import Spinner from './Spinner.tsx';
 import { GenerateIcon, ZipIcon } from './icons/Icons.tsx';
@@ -23,21 +24,51 @@ const Header = ({
   batchProgress,
   onBatchGenerate,
 }: Props) => {
+  const [isZipping, setIsZipping] = useState(false);
   const hasAudio = blocks.some(b => b.audioData);
   const hasText = blocks.some(b => b.text.trim());
   const pendingCount = blocks.filter(b => b.text.trim() && !b.audioData).length;
 
+  const audioCount = blocks.filter(b => b.audioData).length;
+
   const handleZipDownload = async () => {
-    const zip = new JSZip();
-    blocks.forEach((block, i) => {
-      if (!block.audioData) return;
-      const mp3Blob = pcmToMp3(block.audioData);
-      const name = block.title.trim() || `block_${i + 1}`;
-      const filename = `${String(i + 1).padStart(2, '0')}_${sanitizeFilename(name)}_${block.voice}.mp3`;
-      zip.file(filename, mp3Blob);
-    });
-    const blob = await zip.generateAsync({ type: 'blob' });
-    triggerDownload(blob, 'tts_audio.zip');
+    if (audioCount === 0) {
+      alert('ダウンロードする音声がありません。先に音声を生成してください。');
+      return;
+    }
+
+    setIsZipping(true);
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    try {
+      const zip = new JSZip();
+      let fileCount = 0;
+
+      for (let i = 0; i < blocks.length; i++) {
+        const block = blocks[i];
+        if (!block.audioData) continue;
+
+        const mp3Blob = await pcmToMp3Async(block.audioData);
+        const name = block.title.trim() || `block_${i + 1}`;
+        const filename = `${String(i + 1).padStart(2, '0')}_${sanitizeFilename(name)}_${block.voice}.mp3`;
+        zip.file(filename, mp3Blob);
+        fileCount++;
+      }
+
+      if (fileCount === 0) {
+        alert('音声ファイルがZIPに追加されませんでした。');
+        return;
+      }
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      triggerDownload(blob, 'tts_audio.zip');
+
+    } catch (err) {
+      console.error('ZIP download failed:', err);
+      alert(`ZIP作成エラー: ${err instanceof Error ? err.message : '不明なエラー'}`);
+    } finally {
+      setIsZipping(false);
+    }
   };
 
   return (
@@ -74,11 +105,12 @@ const Header = ({
 
             <button
               onClick={handleZipDownload}
-              disabled={!hasAudio}
+              disabled={!hasAudio || isZipping}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              title={hasAudio ? `${audioCount}件の音声をダウンロード` : '音声を先に生成してください'}
             >
-              <ZipIcon />
-              <span>ZIP</span>
+              {isZipping ? <Spinner /> : <ZipIcon />}
+              <span>{isZipping ? '作成中...' : `ZIP (${audioCount})`}</span>
             </button>
           </div>
         </div>

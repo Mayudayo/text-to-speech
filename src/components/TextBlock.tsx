@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { TextBlock as TextBlockType } from '../types.ts';
 import { generateAudioFromText } from '../services/ttsService.ts';
-import { pcmToMp3, triggerDownload, sanitizeFilename } from '../utils/audioUtils.ts';
+import { pcmToMp3Async, triggerDownload, sanitizeFilename } from '../utils/audioUtils.ts';
 import VoiceSelector from './VoiceSelector.tsx';
 import Spinner from './Spinner.tsx';
 import {
@@ -51,16 +51,20 @@ const TextBlock = ({
     }
   }, [block.id, block.text, block.voice, onSetStatus, onSetAudio]);
 
-  const handleDownload = useCallback(() => {
+  const handleDownload = useCallback(async () => {
     if (!block.audioData) return;
+
     setIsDownloading(true);
+    await new Promise(resolve => setTimeout(resolve, 10));
+
     try {
-      const mp3Blob = pcmToMp3(block.audioData);
+      const mp3Blob = await pcmToMp3Async(block.audioData);
       const name = block.title.trim() || `block_${index + 1}`;
       const filename = `${sanitizeFilename(name)}_${block.voice}.mp3`;
       triggerDownload(mp3Blob, filename);
     } catch (err) {
       console.error('Download failed:', err);
+      alert(`ダウンロードエラー: ${err instanceof Error ? err.message : '不明なエラー'}`);
     } finally {
       setIsDownloading(false);
     }
